@@ -1,38 +1,53 @@
 name: Check Spotx for the latest Spotify
+run-name: Check SpotX for Spotify ${{ inputs.version || 'latest' }}
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Spotify version like 1.2.95 or 1.2.95.453, empty means latest
+        required: false
+        default: ''
+        type: string
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
     - name: Run Spotx
       shell: powershell
+      env:
+        SPOTIFY_VERSION: ${{ inputs.version }}
       run: |
-        $jsonUrl = "https://raw.githubusercontent.com/LoaderSpot/table/refs/heads/main/table/versions.json"
-        $resp = Invoke-RestMethod -Uri $jsonUrl
+        $spotifyVersion = ([string]$env:SPOTIFY_VERSION).Trim()
 
-        # Use fullversion because installer names include architecture suffixes
-        $latestEntry = $resp.PSObject.Properties | Select-Object -First 1
-        if (-not $latestEntry) {
-          throw "No Spotify versions found in $jsonUrl"
+        if ([string]::IsNullOrWhiteSpace($spotifyVersion)) {
+          $jsonUrl = "https://raw.githubusercontent.com/LoaderSpot/table/refs/heads/main/table/versions.json"
+          $resp = Invoke-RestMethod -Uri $jsonUrl
+
+          # Use fullversion for the installer name
+          $latestEntry = $resp.PSObject.Properties | Select-Object -First 1
+          if (-not $latestEntry) {
+            throw "No Spotify versions found in $jsonUrl"
+          }
+
+          $spotifyVersion = [string]$latestEntry.Value.fullversion
+          if ([string]::IsNullOrWhiteSpace($spotifyVersion) -or $spotifyVersion -notmatch '^\d+\.\d+\.\d+\.\d+\.g[0-9a-f]{8}$') {
+            throw "Invalid Spotify fullversion for $($latestEntry.Name)"
+          }
+        }
+        elseif ($spotifyVersion -notmatch '^\d+\.\d+\.\d+(?:\.\d+)?$') {
+          throw "Invalid Spotify version: $spotifyVersion"
         }
 
-        $spotifyFullVersion = $latestEntry.Value.fullversion
-        if ([string]::IsNullOrWhiteSpace($spotifyFullVersion) -or $spotifyFullVersion -notmatch '^\d+\.\d+\.\d+\.\d+\.g[0-9a-f]{8}$') {
-          throw "Invalid Spotify fullversion for $($latestEntry.Name)"
-        }
+        Write-Host "Selected Spotify version: $spotifyVersion"
         
         # Incoming parameters
         $parameters = @{
           Verbose = $true
           new_theme = $true
-          version = $spotifyFullVersion
+          version = $spotifyVersion
           confirm_spoti_recomended_over = $true
           cache_limit = 1000
           block_update_on = $true
